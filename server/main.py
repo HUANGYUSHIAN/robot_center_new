@@ -6,6 +6,7 @@ import json
 import logging
 import socket
 import sys
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -26,6 +27,7 @@ except Exception:  # pragma: no cover - fallback when NVML package missing
     pynvml = None
 
 from contracts import Event, Role
+from real_object_debug_view import start_real_object_debug_thread
 
 # Rich Live 需攔截 stdout/stderr（預設 True），否則 uvicorn / logging 直接寫終端會移動游標，
 # Live 仍用「上移 N 行」重繪，游標錯位就會疊出多個表格。非 TTY（重導向）時勿強制 terminal。
@@ -180,6 +182,43 @@ class Hub:
         self.view_subscribers: dict[str, set[WebSocket]] = defaultdict(set)
         self.last_camera_top: str = ""
         self.last_camera_side: str = ""
+        self._real_object_lock = threading.Lock()
+        self.real_object_list: list[dict[str, Any]] = []
+        self.simulation_world_time: float = 0.0
+
+    def set_real_objects(self, objects: list[dict[str, Any]]) -> None:
+        with self._real_object_lock:
+            self.real_object_list = [dict(o) for o in objects]
+
+    def update_real_object_pose(self, payload: dict[str, Any]) -> None:
+        updates = payload.get("objects", [])
+        st = payload.get("sim_time")
+        by_prim: dict[str, Any] = {}
+        for u in updates:
+            p = u.get("prim")
+            c = u.get("center")
+            if p is not None and c is not None:
+                by_prim[str(p)] = c
+        with self._real_object_lock:
+            if st is not None:
+                try:
+                    self.simulation_world_time = float(st)
+                except (TypeError, ValueError):
+                    pass
+            if not by_prim:
+                return
+            for obj in self.real_object_list:
+                p = obj.get("prim")
+                if p is not None and str(p) in by_prim:
+                    obj["center"] = [float(x) for x in by_prim[str(p)]]
+
+    def snapshot_real_objects(self) -> list[dict[str, Any]]:
+        with self._real_object_lock:
+            return [dict(o) for o in self.real_object_list]
+
+    def snapshot_real_object_debug(self) -> tuple[list[dict[str, Any]], float]:
+        with self._real_object_lock:
+            return [dict(o) for o in self.real_object_list], float(self.simulation_world_time)
 
     async def send_json(self, ws: WebSocket, payload: dict[str, Any]) -> None:
         await ws.send_text(json.dumps(payload, ensure_ascii=False))
@@ -249,6 +288,14 @@ class Hub:
 
     async def route_worker_payload(self, role: str, payload: dict[str, Any]) -> None:
         event = payload.get("event")
+        if event == Event.REAL_OBJECT_LIST_INIT:
+            if role == Role.ROBOT:
+                self.set_real_objects(payload.get("objects", []))
+            return
+        if event == Event.REAL_OBJECT_UPDATE:
+            if role == Role.ROBOT:
+                self.update_real_object_pose(payload)
+            return
         if event == Event.COMMAND_REPLY:
             await self.broadcast_frontend(payload)
             await self.broadcast_task_status("actplan", "已完成", "回覆已送達")
@@ -368,6 +415,7 @@ async def lifespan(app: FastAPI):
             with contextlib.suppress(Exception):
                 await async_zc.async_close()
             async_zc = None
+    start_real_object_debug_thread(hub)
     yield
     if live_task:
         live_task.cancel()

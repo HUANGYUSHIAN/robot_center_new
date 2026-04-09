@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+from set_objects import spawn_red_table_objects
+
 # Robot 初始位置設定：
 # - 設成 None：使用桌面正中心（default）
 # - 設成 (x, y, z)：使用自訂世界座標
@@ -29,6 +31,9 @@ ROBOT_PRIM_PATH = "/World/A1"
 CAM_ROBOT_PRIM_PATH = f"{ROBOT_PRIM_PATH}/Cam_Robot"
 CAM_TOP_PRIM_PATH = "/World/Cam_Top"
 CAM_SIDE_PRIM_PATH = "/World/Cam_Side"
+
+# 供 _choose_robot_position 使用（略高於桌面）
+DEFAULT_ROBOT_Z_OFFSET = 0.35
 
 
 @dataclass
@@ -148,7 +153,9 @@ def spawn_robot_and_cameras(world, scene_setup: SceneSetup):
     cam_robot.initialize()
     cam_top.initialize()
     cam_side.initialize()
-    return robot, cam_robot, cam_top, cam_side
+
+    real_object_list_init = spawn_red_table_objects(world, scene_setup)
+    return robot, cam_robot, cam_top, cam_side, real_object_list_init
 
 
 class ExternalCameraViewer:
@@ -223,7 +230,7 @@ def preview_scene(scene_dir: Path, headless: bool) -> None:
         from omni.isaac.core import World
 
         world = World(stage_units_in_meters=1.0)
-        robot, cam_robot, cam_top, cam_side = spawn_robot_and_cameras(world, scene_setup)
+        robot, cam_robot, cam_top, cam_side, _real_objs = spawn_robot_and_cameras(world, scene_setup)
         for _ in range(30):
             simulation_app.update()
         print(

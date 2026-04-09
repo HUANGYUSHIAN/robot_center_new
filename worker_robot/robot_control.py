@@ -6,6 +6,12 @@ import random
 import cv2
 import numpy as np
 
+from set_objects import (
+    CUBE_PRIM_PATH,
+    SPHERE_PRIM_PATH,
+    get_isaac_sim_time_and_tc,
+    get_prim_uniform_centroid_world,
+)
 from set_scene import load_scene, spawn_robot_and_cameras
 
 DIGITAL_FPS = 4
@@ -29,7 +35,9 @@ class RobotControlRuntime:
 
         self._world = World(stage_units_in_meters=1.0)
         self._action_cls = ArticulationAction
-        self._robot, self._cam_robot, self._cam_top, self._cam_side = spawn_robot_and_cameras(self._world, scene_setup)
+        self._robot, self._cam_robot, self._cam_top, self._cam_side, self._real_object_list_init = (
+            spawn_robot_and_cameras(self._world, scene_setup)
+        )
 
         self.dof_names = list(self._robot.dof_names)
         self._tick = 0
@@ -88,6 +96,19 @@ class RobotControlRuntime:
 
     def get_side_frame(self) -> str:
         return self._latest_side
+
+    @property
+    def real_object_list_init(self) -> list[dict]:
+        return self._real_object_list_init
+
+    def get_real_object_pose_update(self) -> tuple[list[dict], float]:
+        sim_t, tc = get_isaac_sim_time_and_tc()
+        stage = self._world.stage
+        objects = [
+            {"prim": CUBE_PRIM_PATH, "center": list(get_prim_uniform_centroid_world(stage, CUBE_PRIM_PATH, tc))},
+            {"prim": SPHERE_PRIM_PATH, "center": list(get_prim_uniform_centroid_world(stage, SPHERE_PRIM_PATH, tc))},
+        ]
+        return objects, sim_t
 
     def close(self) -> None:
         if self._sim is not None:

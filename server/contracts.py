@@ -37,3 +37,6 @@ class Event:
 
     CAMERA_SNAPSHOT_REQUEST = "camera_snapshot_request"
     CAMERA_SNAPSHOT = "camera_snapshot"
+
+    REAL_OBJECT_LIST_INIT = "real_object_list_init"
+    REAL_OBJECT_UPDATE = "real_object_update"

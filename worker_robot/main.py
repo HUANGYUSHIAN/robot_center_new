@@ -123,6 +123,10 @@ if __name__ == "__main__":
     with shared.lock:
         shared.joint_names = list(runtime.dof_names)
         shared.joint_values = [0.0 for _ in runtime.dof_names]
+        shared.real_object_init_list = list(runtime.real_object_list_init)
+        pose, sim_t = runtime.get_real_object_pose_update()
+        shared.real_object_pose_update = pose
+        shared.simulation_time = sim_t
 
     ws_thread = threading.Thread(
         target=ws_thread_main,
@@ -142,6 +146,9 @@ if __name__ == "__main__":
                 shared.latest_digital = runtime.get_digital_frame()
                 shared.latest_top = runtime.get_top_frame()
                 shared.latest_side = runtime.get_side_frame()
+                pose, sim_t = runtime.get_real_object_pose_update()
+                shared.real_object_pose_update = pose
+                shared.simulation_time = sim_t
                 if shared.stop:
                     break
             if live is not None:
