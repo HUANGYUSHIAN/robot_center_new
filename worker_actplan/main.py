@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
-import json
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
-import cv2
-import numpy as np
 import psutil
-import websockets
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -37,13 +31,9 @@ if str(_TMUI_ROOT) not in sys.path:
 sys.path.insert(0, str(_TMUI_ROOT / "server"))
 from contracts import Event  # noqa: E402
 from tmui_discovery import resolve_server_endpoint  # noqa: E402
-from tmui_tk_preview import TkImagePreviewThread  # noqa: E402
+from websocket import now_text, run_worker  # noqa: E402
 
 state = {"requests": 0, "replies": 0, "pulls": 0, "server": "N/A"}
-
-
-def now_text() -> str:
-    return datetime.now().strftime("%H:%M:%S")
 
 
 class ResourceMonitor:
@@ -111,108 +101,6 @@ def build_table() -> Table:
     return table
 
 
-def decode_b64_jpeg(image_b64: str) -> np.ndarray | None:
-    if not image_b64:
-        return None
-    try:
-        raw = base64.b64decode(image_b64)
-    except Exception:
-        return None
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-
-def _placeholder_bgr(label: str) -> np.ndarray:
-    img = np.zeros((240, 320, 3), dtype=np.uint8)
-    cv2.putText(img, label, (24, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 2)
-    return img
-
-
-def _hstack_left_right(left: np.ndarray, right: np.ndarray) -> np.ndarray:
-    h = min(left.shape[0], right.shape[0])
-    if left.shape[0] != h:
-        left = cv2.resize(left, (int(left.shape[1] * h / left.shape[0]), h), interpolation=cv2.INTER_AREA)
-    if right.shape[0] != h:
-        right = cv2.resize(right, (int(right.shape[1] * h / right.shape[0]), h), interpolation=cv2.INTER_AREA)
-    return np.hstack((left, right))
-
-
-async def handle_command(ws, text: str) -> None:
-    console.print(f"[yellow]{now_text()}[/yellow] 收到請求: {text}")
-    state["requests"] += 1
-    await asyncio.sleep(2)
-    reply = text[: len(text) // 2] if text else ""
-    await ws.send(json.dumps({"event": Event.COMMAND_REPLY, "role": "assistant", "text": reply}, ensure_ascii=False))
-    console.print(f"[green]{now_text()}[/green] 已回覆: {reply}")
-    state["replies"] += 1
-
-
-async def run(ip: str, port: str) -> None:
-    uri = f"ws://{ip}:{port}/ws"
-    incoming: asyncio.Queue = asyncio.Queue()
-    console.print(f"[cyan]{now_text()}[/cyan] 連線到 {uri}")
-
-    async with websockets.connect(uri, open_timeout=8) as ws:
-        await ws.send(json.dumps({"event": Event.REGISTER, "role": "worker_actplan"}, ensure_ascii=False))
-        ack = json.loads(await ws.recv())
-        console.print(f"[green]{now_text()}[/green] 註冊成功: {ack}")
-
-        async def reader() -> None:
-            while True:
-                raw = await ws.recv()
-                await incoming.put(json.loads(raw))
-
-        read_task = asyncio.create_task(reader())
-        preview = TkImagePreviewThread("worker_actplan: Cam_Top (左) | Cam_Side (右)")
-        preview.start()
-
-        next_snap = asyncio.get_event_loop().time() + F_update
-
-        try:
-            while True:
-                loop_time = asyncio.get_event_loop().time()
-                delay = next_snap - loop_time
-                msg = None
-                if delay > 0:
-                    try:
-                        msg = await asyncio.wait_for(incoming.get(), timeout=delay)
-                    except asyncio.TimeoutError:
-                        msg = None
-                else:
-                    try:
-                        msg = incoming.get_nowait()
-                    except asyncio.QueueEmpty:
-                        msg = None
-
-                if msg is not None:
-                    evt = msg.get("event")
-                    if evt == Event.COMMAND_INPUT:
-                        await handle_command(ws, str(msg.get("text", "")))
-                    elif evt == Event.CAMERA_SNAPSHOT:
-                        top_b64 = str(msg.get("top", ""))
-                        side_b64 = str(msg.get("side", ""))
-                        if not top_b64 and not side_b64:
-                            _log.warning(
-                                "camera_snapshot 的 top/side 皆為空（請確認 worker_robot 已連線並送出 camera_top/camera_side）"
-                            )
-                        top = decode_b64_jpeg(top_b64)
-                        side = decode_b64_jpeg(side_b64)
-                        left = top if top is not None else _placeholder_bgr("no Cam_Top")
-                        right = side if side is not None else _placeholder_bgr("no Cam_Side")
-                        preview.set_frame(_hstack_left_right(left, right))
-                        state["pulls"] += 1
-
-                loop_time = asyncio.get_event_loop().time()
-                if loop_time >= next_snap:
-                    await ws.send(json.dumps({"event": Event.CAMERA_SNAPSHOT_REQUEST}, ensure_ascii=False))
-                    next_snap = loop_time + F_update
-        finally:
-            read_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await read_task
-            preview.stop()
-
-
 if __name__ == "__main__":
     server_ip, server_port = resolve_server_endpoint("worker_actplan")
     state["server"] = f"{server_ip}:{server_port}"
@@ -234,7 +122,7 @@ if __name__ == "__main__":
     if SHOW_RICH:
         refresh_task = loop.create_task(refresh_live())
     try:
-        loop.run_until_complete(run(server_ip, str(server_port)))
+        loop.run_until_complete(run_worker(server_ip, str(server_port), F_update, state, Event, console))
     except Exception as exc:
         console.print(f"[red]{now_text()}[/red] 連線失敗或中斷: {exc}")
     finally:

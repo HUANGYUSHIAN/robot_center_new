@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
-import json
 import logging
 import os
 import sys
 from pathlib import Path
 
 import cv2
-import numpy as np
 import psutil
-import websockets
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -32,7 +28,7 @@ if str(_TMUI_ROOT) not in sys.path:
 sys.path.insert(0, str(_TMUI_ROOT / "server"))
 from contracts import Event  # noqa: E402
 from tmui_discovery import resolve_server_endpoint  # noqa: E402
-from tmui_tk_preview import TkImagePreviewThread  # noqa: E402
+from websocket import run_worker  # noqa: E402
 
 state = {"pulls": 0, "source_ok": False, "server": "N/A"}
 _log = logging.getLogger("tmui.worker_vision")
@@ -104,85 +100,6 @@ def build_table() -> Table:
     return table
 
 
-def decode_b64_jpeg(image_b64: str) -> np.ndarray | None:
-    if not image_b64:
-        return None
-    try:
-        raw = base64.b64decode(image_b64)
-    except Exception:
-        return None
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-
-def _bgr_to_gray3(bgr: np.ndarray | None, placeholder: str) -> np.ndarray:
-    if bgr is None or bgr.size == 0:
-        img = np.zeros((240, 320, 3), dtype=np.uint8)
-        cv2.putText(img, placeholder, (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 2)
-        return img
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-
-
-def _hstack_left_right(left: np.ndarray, right: np.ndarray) -> np.ndarray:
-    h = min(left.shape[0], right.shape[0])
-    if left.shape[0] != h:
-        left = cv2.resize(left, (int(left.shape[1] * h / left.shape[0]), h), interpolation=cv2.INTER_AREA)
-    if right.shape[0] != h:
-        right = cv2.resize(right, (int(right.shape[1] * h / right.shape[0]), h), interpolation=cv2.INTER_AREA)
-    return np.hstack((left, right))
-
-
-async def run(ip: str, port: str) -> None:
-    uri = f"ws://{ip}:{port}/ws"
-    incoming: asyncio.Queue = asyncio.Queue()
-
-    async with websockets.connect(uri, open_timeout=8) as ws:
-        await ws.send(json.dumps({"event": Event.REGISTER, "role": "worker_vision"}, ensure_ascii=False))
-        await ws.recv()
-        _log.info("worker_vision 註冊成功")
-
-        async def reader() -> None:
-            while True:
-                raw = await ws.recv()
-                await incoming.put(json.loads(raw))
-
-        read_task = asyncio.create_task(reader())
-        preview = TkImagePreviewThread("worker_vision: Cam_Top (左) | Cam_Side (右) [灰階]")
-        preview.start()
-        try:
-            while True:
-                await asyncio.sleep(F_update)
-                await ws.send(json.dumps({"event": Event.CAMERA_SNAPSHOT_REQUEST}, ensure_ascii=False))
-                while True:
-                    try:
-                        msg = await asyncio.wait_for(incoming.get(), timeout=60.0)
-                    except asyncio.TimeoutError:
-                        _log.warning("等待 camera_snapshot 逾時")
-                        break
-                    if msg.get("event") == Event.CAMERA_SNAPSHOT:
-                        top_b64 = str(msg.get("top", ""))
-                        side_b64 = str(msg.get("side", ""))
-                        if not top_b64 and not side_b64:
-                            _log.warning(
-                                "camera_snapshot 的 top/side 皆為空（請確認 worker_robot 已連線並送出 camera_top/camera_side）"
-                            )
-                        top = decode_b64_jpeg(top_b64)
-                        side = decode_b64_jpeg(side_b64)
-                        left = _bgr_to_gray3(top, "no Cam_Top")
-                        right = _bgr_to_gray3(side, "no Cam_Side")
-                        combined = _hstack_left_right(left, right)
-                        preview.set_frame(combined)
-                        state["pulls"] += 1
-                        state["source_ok"] = top is not None or side is not None
-                        break
-        finally:
-            read_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await read_task
-            preview.stop()
-
-
 if __name__ == "__main__":
     server_ip, server_port = resolve_server_endpoint("worker_vision")
     state["server"] = f"{server_ip}:{server_port}"
@@ -203,7 +120,7 @@ if __name__ == "__main__":
     if SHOW_RICH:
         refresh_task = loop.create_task(refresh_live())
     try:
-        loop.run_until_complete(run(server_ip, str(server_port)))
+        loop.run_until_complete(run_worker(server_ip, str(server_port), F_update, state, Event))
     finally:
         if refresh_task is not None:
             refresh_task.cancel()
