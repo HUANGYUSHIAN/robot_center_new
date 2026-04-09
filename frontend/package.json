@@ -1,0 +1,28 @@
+{
+  "name": "intranet-stream-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "dev:external": "node scripts/dev.cjs",
+    "twilio:ice": "node scripts/twilio-ice.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.8",
+    "@mui/material": "^6.4.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-speech-recognition": "^4.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^16.4.5",
+    "ngrok": "^5.0.0-beta.2",
+    "vite": "^5.4.14"
+  }
+}

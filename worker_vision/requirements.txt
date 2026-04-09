@@ -1,0 +1,7 @@
+websockets
+rich
+opencv-python
+numpy
+zeroconf
+psutil
+nvidia-ml-py3

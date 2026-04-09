@@ -1,0 +1,44 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Python virtual environments
+.venv/
+**/.venv/
+server/.venv/
+worker_vision/.venv/
+worker_actplan/.venv/
+worker_robot/.venv/
+
+# Python bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+server/server.log
+
+# OS & editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Optional: large local assets (uncomment if USD should not be tracked)
+# worker_robot/*.usd
