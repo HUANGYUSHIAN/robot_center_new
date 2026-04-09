@@ -21,5 +21,7 @@ export const Event = {
   ROBOT_STATUS_INIT: "robot_status_init",
   ROBOT_STATUS_UPDATE: "robot_status_update",
   PROCESS_SNAPSHOT: "process_snapshot",
-  PROCESS_CONTROL: "process_control"
+  PROCESS_CONTROL: "process_control",
+  CAMERA_SNAPSHOT_REQUEST: "camera_snapshot_request",
+  CAMERA_SNAPSHOT: "camera_snapshot"
 };

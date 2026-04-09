@@ -3,3 +3,6 @@ rich
 zeroconf
 psutil
 nvidia-ml-py3
+opencv-python
+numpy
+Pillow

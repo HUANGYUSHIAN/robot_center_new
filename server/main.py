@@ -81,7 +81,6 @@ class RuntimeStats:
     )
     viewer_count: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     frame_count: dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    relay_count: int = 0
 
 
 stats = RuntimeStats()
@@ -179,6 +178,8 @@ class Hub:
         self.frontends: set[WebSocket] = set()
         self.workers: dict[str, WebSocket] = {}
         self.view_subscribers: dict[str, set[WebSocket]] = defaultdict(set)
+        self.last_camera_top: str = ""
+        self.last_camera_side: str = ""
 
     async def send_json(self, ws: WebSocket, payload: dict[str, Any]) -> None:
         await ws.send_text(json.dumps(payload, ensure_ascii=False))
@@ -215,6 +216,14 @@ class Hub:
             await self.notify_worker_view(next_view, subscribe=True)
 
     async def notify_worker_view(self, view_name: str, subscribe: bool) -> None:
+        if view_name in {"camera_top", "camera_side"}:
+            action = "執行中" if subscribe else "已完成"
+            await self.broadcast_task_status(
+                f"{view_name}_stream",
+                action,
+                f"訂閱數={len(self.view_subscribers[view_name])}",
+            )
+            return
         worker_role = Role.ROBOT if view_name in {"digital", "robot_status"} else Role.VISION
         worker = self.workers.get(worker_role)
         if worker is None:
@@ -247,16 +256,11 @@ class Hub:
         if event == Event.FRAME:
             view = payload.get("view", "")
             stats.frame_count[view] += 1
-            if role == Role.ROBOT and view in {"cam_top_raw", "cam_side_raw"}:
-                vision_ws = self.workers.get(Role.VISION)
-                if vision_ws is not None:
-                    try:
-                        await self.send_json(vision_ws, payload)
-                        stats.relay_count += 1
-                    except Exception:
-                        pass
-                return
-            for ws in list(self.view_subscribers[view]):
+            if role == Role.ROBOT and view == "camera_top":
+                self.last_camera_top = str(payload.get("image", ""))
+            elif role == Role.ROBOT and view == "camera_side":
+                self.last_camera_side = str(payload.get("image", ""))
+            for ws in list(self.view_subscribers.get(view, set())):
                 try:
                     await self.send_json(ws, payload)
                 except Exception:
@@ -290,8 +294,8 @@ def build_live_table() -> Table:
     table.add_row("camera_side 訂閱", str(stats.viewer_count["camera_side"]))
     table.add_row("robot_status 訂閱", str(stats.viewer_count["robot_status"]))
     table.add_row("digital frame", str(stats.frame_count["digital"]))
-    table.add_row("camera frame", str(stats.frame_count["camera"]))
-    table.add_row("cam_top relay", str(stats.relay_count))
+    table.add_row("camera_top frame", str(stats.frame_count["camera_top"]))
+    table.add_row("camera_side frame", str(stats.frame_count["camera_side"]))
     for k, v in resource_monitor.rows():
         table.add_row(k, v)
     return table
@@ -405,8 +409,6 @@ async def ws_entry(ws: WebSocket) -> None:
                     await hub.broadcast_task_status("初始化", "已完成", "三個 worker 已連線")
                 else:
                     await hub.broadcast_task_status("初始化", "執行中", f"{role} 已連線")
-                if stats.connected_workers[Role.ROBOT] and stats.connected_workers[Role.VISION]:
-                    await hub.broadcast_task_status("cam_top_bridge", "已完成", "worker_robot 與 worker_vision 連線完成")
 
         while True:
             data = await ws.receive_text()
@@ -426,6 +428,16 @@ async def ws_entry(ws: WebSocket) -> None:
                 else:
                     await hub.send_json(ws, {"event": Event.ERROR, "message": f"未知事件 {event}"})
             else:
+                if event == Event.CAMERA_SNAPSHOT_REQUEST and role in {Role.VISION, Role.ACTPLAN}:
+                    await hub.send_json(
+                        ws,
+                        {
+                            "event": Event.CAMERA_SNAPSHOT,
+                            "top": hub.last_camera_top,
+                            "side": hub.last_camera_side,
+                        },
+                    )
+                    continue
                 await hub.route_worker_payload(role, payload)
     except WebSocketDisconnect:
         _server_log.info("WebSocket 連線中斷 role=%s", role)

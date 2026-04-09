@@ -85,10 +85,10 @@ async def ws_worker(ip: str, port: str, shared: SharedData, state: dict) -> None
                             top_frame = shared.latest_top
                             side_frame = shared.latest_side
                         if top_frame:
-                            await ws.send(json.dumps({"event": "frame", "view": "cam_top_raw", "image": top_frame}, ensure_ascii=False))
+                            await ws.send(json.dumps({"event": "frame", "view": "camera_top", "image": top_frame}, ensure_ascii=False))
                             state["top_frames"] += 1
                         if side_frame:
-                            await ws.send(json.dumps({"event": "frame", "view": "cam_side_raw", "image": side_frame}, ensure_ascii=False))
+                            await ws.send(json.dumps({"event": "frame", "view": "camera_side", "image": side_frame}, ensure_ascii=False))
                             state["side_frames"] += 1
                         await asyncio.sleep(1 / TOP_FPS)
 

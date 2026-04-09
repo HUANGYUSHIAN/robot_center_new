@@ -2,6 +2,7 @@ websockets
 rich
 opencv-python
 numpy
+Pillow
 zeroconf
 psutil
 nvidia-ml-py3

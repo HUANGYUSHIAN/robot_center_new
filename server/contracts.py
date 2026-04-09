@@ -34,3 +34,6 @@ class Event:
 
     PROCESS_SNAPSHOT = "process_snapshot"
     PROCESS_CONTROL = "process_control"
+
+    CAMERA_SNAPSHOT_REQUEST = "camera_snapshot_request"
+    CAMERA_SNAPSHOT = "camera_snapshot"
